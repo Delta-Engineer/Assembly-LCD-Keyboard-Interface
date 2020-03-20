@@ -1,0 +1,386 @@
+#include "p18F4520.inc"
+
+    CONFIG  OSC = HS
+    CONFIG PWRT = OFF
+    CONFIG WDT = OFF
+    CONFIG PBADEN = OFF
+    CONFIG LVP = OFF
+
+    org     0x000000
+    GOTO    MAIN
+
+    org     0x000008
+    GOTO    INTERRUPT
+
+LDSHORT	    equ	    0X001
+LDLONG	    equ	    0x002
+LDVERYL	    equ	    0x003
+
+SAVE	    equ	    0x005
+
+;****** DELAYS ******************************************************************
+
+ED10MS	CLRF	LDLONG
+	MOVLW	0x05
+	MOVWF	LDLONG
+ISLOOP	DECFSZ	LDSHORT
+	GOTO	ISLOOP
+	DECFSZ	LDLONG
+	GOTO	ISLOOP
+	RETURN
+
+ED2SEC	MOVLW	0x58
+	MOVWF	LDVERYL
+IDLOOP	CALL	ED10MS
+	DECFSZ	LDVERYL
+	GOTO	IDLOOP
+	RETURN
+
+;****** INIT USED PORTS, SERCOM AND INTERRUPTS *********************************
+INIT_SERCOM
+	MOVLW   B'10000010'
+	MOVWF   TRISC
+
+	MOVLW   0x00
+	MOVWF   TRISA
+	MOVWF   TRISD
+
+	MOVLW   B'10010000'		    ;enable receive and serial port itself
+	MOVWF   RCSTA			    ;& countinous recieve (asynchronous mode) -> register
+	MOVLW   B'00100110'		    ;transmitt enable, high baud rate
+	MOVWF   TXSTA			    ;& TSR empty (transmitt shift register) -> register
+	MOVLW   D'15'			    ;high baud rate (9600)
+	MOVWF   SPBRG			    ;write to reg
+	MOVLW   B'00100000'		    ;enable recieve interrupt!
+	MOVWF   PIE1			    ;write to register!
+	MOVLW   B'11000000'		    ;allow global ints
+	MOVWF   INTCON
+
+	BCF	PORTC, RC0              ;(LED & LCD off)
+	RETURN
+
+ ;****** START LCD *************************************************************
+INIT_LCD                        ;This function initiates the structure of the LCD, the following commands are initiating the LCD layout
+	CLRF	TRISD
+	BCF	TRISB,RB1
+	BCF	TRISB,RB3
+	BCF	PORTB,RB1
+
+	MOVLW	0x38
+	CALL	COMNWRT
+	CALL	ED10MS
+	MOVLW	0x38
+	CALL	COMNWRT
+	CALL	ED10MS
+	MOVLW	0x38
+	CALL	COMNWRT
+	CALL	ED10MS
+	MOVLW	0x0E
+	CALL	COMNWRT
+	CALL	ED10MS
+	MOVLW	0x06
+	CALL	COMNWRT
+	CALL	ED10MS
+	MOVLW	0x01
+	CALL	COMNWRT
+	CALL	ED10MS
+	RETURN
+
+ ;****** LCD ROUTINE *****************************************************
+COMNWRT	BCF	PORTB,RB3               ; COMMAND ROUTINE
+	MOVWF	PORTD
+	BSF	PORTB,RB1
+	BCF	PORTB,RB1
+	RETURN
+
+DATAWRT BSF	PORTB,RB3               ; DATA SEND TO LCD ROUTINE
+	MOVWF	PORTD
+	BSF	PORTB,RB1
+	BCF	PORTB,RB1
+        RETURN
+
+NXT_TXT
+	TBLRD*+                         ; TABLE FUNCTION FOR DATA TO SEND DATA
+	MOVF    TABLAT,W
+	IORLW   0x00
+	BZ	KLAR
+	CALL    SEND_DATA
+	BRA     NXT_TXT
+KLAR    RETURN
+
+;*******************************************************************************
+
+SEND_DATA
+	BTFSS   PIR1, TXIF              ;peripheral interurupt request reg 1.
+	BRA	SEND_DATA
+	MOVWF	TXREG
+	RETURN
+
+INTERRUPT
+	MOVF    RCREG, W
+	CALL	DATAWRT                 ;Subroutine show letter on LCD!
+	CALL	ED10MS
+	RETFIE
+
+;*******************************************************************************
+
+CHECK_KEYS  BSF	    PORTA, RA1		;PUTS ROW 1 TO HIGH
+
+	    BTFSS   PORTB, 0x02			;CHECKS IF IT IS LOW, CALL SKRIV_PC1 IN THAT CASE
+	    CALL    SKRIV_PC1
+                                    ;OTHERWISE CHECK NEXT
+	    BTFSS  PORTB, 0x04
+	    CALL   SKRIV_PC2
+
+	    BTFSS  PORTB, 0x08
+	    CALL   SKRIV_PC0
+
+	    BTFSS  PORTB, 0x05
+	    CALL   SKRIV_PC3
+
+	    BCF    PORTA, RA1		     ;CLOSE OFF COL1 AND PUT NEXT ROW TO HIGH
+	    BSF    PORTA, RA2		     ;SAME ROUTINE FOR ALL ROWS
+
+	    BTFSS   PORTB, 0x01
+
+	    BTFSS   PORTB, 0x02
+	    CALL    SKRIV_PC5
+
+	    BTFSS  PORTB, 0x04
+	    CALL   SKRIV_PC6
+
+	    BTFSS  PORTB, 0x08
+	    CALL   SKRIV_PC4
+
+	    BTFSS  PORTB, 0x05
+	    CALL   SKRIV_PC7
+
+	    BCF    PORTA, RA2
+	    BSF    PORTA, RA3
+
+	    BTFSS  PORTB, 0x01
+
+	    BTFSS  PORTB, 0x02
+	    CALL   SKRIV_PC9
+
+	    BTFSS  PORTB, 0x04
+	    CALL   SKRIV_PCA
+
+	    BTFSS  PORTB, 0x08
+	    CALL   SKRIV_PC8
+
+	    BTFSS  PORTB, 0x05
+	    CALL   SKRIV_PCB
+
+	    BCF    PORTA, RA3
+	    BSF    PORTA, RA5
+
+	    BTFSS  PORTB, 0x01
+
+	    BTFSS  PORTB, 0x02
+	    CALL   SKRIV_PCD
+
+	    BTFSS  PORTB, 0x04
+	    CALL   SKRIV_PCE
+	    CALL   ED2SEC
+
+	    BTFSS  PORTB, 0x08
+	    CALL   SKRIV_PCC
+	    CALL   ED2SEC
+
+	    BTFSS  PORTB, 0x05
+	    CALL   SKRIV_PCF
+
+	    BCF    PORTA, RA5
+	    RETURN
+
+;****** MAIN *******************************************************************
+MAIN	CALL    INIT_LCD			;MAIN PROGRAM STARTS BY INITIALIZING THE LCD AND SERIAL PORTS
+	CALL	INIT_SERCOM
+
+LOOP	CALL    CHECK_KEYS			;IT THEN LOOPS TO CHECK THE KEYS PRESSED, USING POLLING, BUT THE SERAIL COMMUNICATION IS SENT AND RECIEVED BY INTERRUPT,
+	GOTO    LOOP                    ;HOWEVER THE KEYS ARE BEING POLLED
+
+;******* LCD MODULE ************************************************************
+MYDATA0	    DB "0",0
+MYDATA1	    DB "1",0
+MYDATA2	    DB "2",0
+MYDATA3	    DB "3",0
+MYDATA4	    DB "4",0
+MYDATA5	    DB "5",0
+MYDATA6     DB "6",0
+MYDATA7     DB "7",0
+MYDATA8     DB "8",0
+MYDATA9     DB "9",0
+MYDATAA     DB "A",0
+MYDATAB     DB "B",0
+MYDATAC     DB "C",0
+MYDATAD     DB "D",0
+MYDATAE     DB "E",0
+MYDATAF     DB "F",0
+
+
+SKRIV_PC0
+	MOVLW   UPPER (MYDATA0)			;LOADING DATA TO TABLE, THE FUNCTION NAMES ARE DEPENDENT ON THE KEYS PRESSED WHICH THEN ARE DETERMINED BY THE ABOVE DECLARATIONS
+	MOVWF   TBLPTRU                 ;OF THE MYDATAn VARIABLES
+	MOVLW   HIGH (MYDATA0)
+	MOVWF   TBLPTRH
+	MOVLW   LOW (MYDATA0)
+	MOVWF   TBLPTRL
+	CALL	NXT_TXT
+	RETURN
+
+SKRIV_PC1
+      MOVLW	UPPER (MYDATA1)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA1)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA1)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC2
+      MOVLW	UPPER (MYDATA2)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA2)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA2)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC3
+      MOVLW	UPPER (MYDATA3)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA3)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA3)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC4
+      MOVLW	UPPER (MYDATA4)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA4)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA4)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC5
+      MOVLW	UPPER (MYDATA5)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA5)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA5)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC6
+      MOVLW	UPPER (MYDATA6)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA6)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA6)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC7
+      MOVLW	UPPER (MYDATA7)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA7)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA7)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC8
+      MOVLW	UPPER (MYDATA8)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA8)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA8)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PC9
+      MOVLW	UPPER (MYDATA9)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATA9)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATA9)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PCA
+      MOVLW	UPPER (MYDATAA)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAA)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAA)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PCB
+      MOVLW	UPPER (MYDATAB)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAB)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAB)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PCC
+      MOVLW	UPPER (MYDATAC)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAC)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAC)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PCD
+      MOVLW	UPPER (MYDATAD)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAD)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAD)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+
+SKRIV_PCE
+      MOVLW	UPPER (MYDATAE)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAE)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAE)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+SKRIV_PCF
+      MOVLW	UPPER (MYDATAF)
+      MOVWF	TBLPTRU
+      MOVLW	HIGH (MYDATAF)
+      MOVWF	TBLPTRH
+      MOVLW	LOW (MYDATAF)
+      MOVWF	TBLPTRL
+      CALL	NXT_TXT
+      RETURN
+
+     END
+
+
